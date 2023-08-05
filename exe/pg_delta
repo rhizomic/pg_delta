@@ -1,0 +1,69 @@
+#!/usr/bin/env ruby
+
+$LOAD_PATH.unshift(__dir__ + "/../lib")
+
+require "pg_delta"
+require "pg_delta/version"
+
+require "json"
+require "optparse"
+
+class CLI
+  def self.parse_options(args)
+    options = {
+      files: []
+    }
+
+    option_parser = OptionParser.new do |opts|
+      opts.banner = "Usage: pg_delta -f FILES"
+
+      opts.separator ""
+
+      opts.separator "Example:"
+      opts.separator "  $ pg_delta -f 1.sql 2.sql 3.sql"
+
+      opts.separator ""
+
+      opts.separator "Options:"
+
+      opts.on("-v", "--version", "Print the version") do |v|
+        puts "pg_delta v#{PgDelta::Version::VERSION}"
+        exit
+      end
+
+      opts.on_tail("-h", "--help", "Show this message") do
+        puts opts
+        exit
+      end
+
+      opts.on("-f", "--files FILES", Array, "The files to parse") do |files|
+        options[:files] |= [*files]
+      end
+    end
+
+    option_parser.parse!(args)
+
+    options
+  end
+end
+
+ARGV << "-h" if ARGV.empty? && $stdin.tty?
+cli_options = CLI.parse_options ARGV
+
+# Workaround to get multiple files passed to :files without needing to resort
+# to commas.
+# See: https://stackoverflow.com/a/29938935
+cli_options[:files] |= ARGV
+
+file_contents = cli_options[:files].map do |file|
+  file = File.expand_path file
+  File.read file
+end.join ";"
+
+statements = PgDelta.split_statements file_contents
+
+results = statements.map do |statement|
+  PgDelta.parse_statement statement
+end
+
+puts JSON.pretty_generate(results)
